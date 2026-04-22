@@ -230,9 +230,6 @@ export default function App() {
         {rewriteResult ? (
           <SectionCard title="优化结果" accent="ink">
             <div className="result-note">
-              已按原始简历的 section 结构展示优化结果，未改变原有结构顺序。
-            </div>
-            <div className="result-note">
               {rewriteResult.rewrite?.trace?.llm_used
                 ? "本次改写由 DeepSeek 生成。"
                 : "本次改写未完成（DeepSeek 调用失败）。请重试。"}

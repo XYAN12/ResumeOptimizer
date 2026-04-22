@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from app.core.exceptions import LLMServiceError
 from app.models.domain import JDProfile, ResumeFacts, RewriteResult, RewriteSection
@@ -16,10 +17,7 @@ class ResumeRewriteService:
         if not self.llm_client.is_configured():
             raise LLMServiceError("DeepSeek API is required for resume rewrite. Please configure DEEPSEEK_API_KEY and retry.")
 
-        sections: list[RewriteSection] = []
-        for section in resume_facts.sections:
-            rewritten_section = self._rewrite_section(section, jd_profile)
-            sections.append(rewritten_section)
+        sections = self._rewrite_full_resume_with_llm(resume_facts, jd_profile)
         if len(sections) != len(resume_facts.sections):
             raise ValueError("Rewrite must preserve original section count")
 
@@ -50,116 +48,97 @@ class ResumeRewriteService:
                 "preserved_section_titles": [section.title for section in sections],
                 "llm_used": True,
                 "llm_fallback_reason": "",
+                "rewrite_mode": "full_resume_direct",
             },
         )
 
-    def _rewrite_section(self, section, jd_profile: JDProfile) -> RewriteSection:
-        items = self._rewrite_section_with_llm(section, jd_profile)
-        content = "\n".join(items)
-        supporting_facts = [item.text for item in section.items]
-        return RewriteSection(
-            title=section.title,
-            content=content,
-            items=items,
-            supporting_facts=supporting_facts,
-            layout=section.layout,
-        )
-
-    def _rewrite_section_with_llm(self, section, jd_profile: JDProfile) -> list[str]:
-        if not section.items:
-            return []
-
-        source_items = [item.text for item in section.items]
-        primary_system_prompt = (
-            "You are a resume rewriter. Keep all facts grounded. "
-            "Do not remove factual lines from source."
-        )
-        primary_user_prompt = f"""
-Rewrite this resume section for JD alignment.
-Return strict JSON: {{"items":["string"]}}
-
-Rules:
-- Keep same section title: {section.title}
-- Keep same item count: {len(source_items)}
-- Preserve every original fact (can rephrase, cannot delete facts).
-- No fabricated metrics, employers, technologies, or timelines.
-- Chinese concise style.
-
-JD keywords: {jd_profile.keywords[:12]}
-JD title: {jd_profile.title}
-Source items: {source_items}
-"""
-        content = self.llm_client.chat_text(
-            system_prompt=primary_system_prompt,
-            user_prompt=primary_user_prompt,
-        )
-        try:
-            parsed = json.loads(self.llm_client.extract_json_block(content))
-        except Exception as exc:
-            raise LLMServiceError("Failed to parse rewrite JSON from DeepSeek") from exc
-        llm_items = [str(item).strip() for item in parsed.get("items", []) if str(item).strip()]
-
-        if len(llm_items) == len(source_items):
-            return llm_items
-
-        repaired_items = self._retry_rewrite_with_index_mapping(
-            section_title=section.title,
-            source_items=source_items,
-            jd_profile=jd_profile,
-        )
-        if len(repaired_items) != len(source_items):
-            raise LLMServiceError(
-                f"Rewrite structure mismatch in section '{section.title}': expected {len(source_items)} items, got {len(repaired_items)}. Please retry."
-            )
-        return repaired_items
-
-    def _retry_rewrite_with_index_mapping(
+    def _rewrite_full_resume_with_llm(
         self,
-        section_title: str,
-        source_items: list[str],
+        resume_facts: ResumeFacts,
         jd_profile: JDProfile,
-    ) -> list[str]:
-        indexed_items = [{ "index": idx, "text": text } for idx, text in enumerate(source_items)]
+    ) -> list[RewriteSection]:
+        source_sections = [
+            {
+                "title": section.title,
+                "items": [item.text for item in section.items],
+            }
+            for section in resume_facts.sections
+        ]
         system_prompt = (
-            "You rewrite resume content while preserving structure exactly. "
+            "You rewrite full resume content while preserving structure exactly. "
             "Return strict JSON only."
         )
         user_prompt = f"""
-Previous attempt returned wrong item count. Rewrite again with strict index mapping.
 Return strict JSON with schema:
 {{
-  "items_by_index": {{
-    "0": "string",
-    "1": "string"
-  }}
+  "sections": [
+    {{
+      "title": "string",
+      "items": ["string"]
+    }}
+  ]
 }}
 
 Rules:
-- Keep section title unchanged: {section_title}
-- Must return ALL indexes from 0 to {len(source_items) - 1}, no missing and no extra keys.
-- Each value must preserve original fact meaning, no invented facts.
+- Keep section count, order and titles exactly the same as source_sections.
+- Preserve every original fact meaning (can rephrase, cannot delete or fabricate facts).
+- No fabricated metrics, employers, technologies, education, dates, or timelines.
 - Chinese concise style.
+- You may merge/split bullet lines if readability improves.
 
 JD title: {jd_profile.title}
 JD keywords: {jd_profile.keywords[:12]}
-Indexed source items: {indexed_items}
+Source resume format: {resume_facts.source_format}
+Full source resume text:
+{resume_facts.raw_text}
+
+Source sections: {source_sections}
 """
         content = self.llm_client.chat_text(system_prompt=system_prompt, user_prompt=user_prompt)
         try:
             parsed = json.loads(self.llm_client.extract_json_block(content))
         except Exception as exc:
-            raise LLMServiceError("Failed to parse strict rewrite JSON from DeepSeek") from exc
+            raise LLMServiceError("Failed to parse full rewrite JSON from DeepSeek") from exc
 
-        items_by_index = parsed.get("items_by_index")
-        if not isinstance(items_by_index, dict):
-            raise LLMServiceError("DeepSeek strict rewrite response missing items_by_index")
+        llm_sections = parsed.get("sections")
+        if not isinstance(llm_sections, list):
+            raise LLMServiceError("DeepSeek full rewrite response missing sections")
+        if len(llm_sections) != len(resume_facts.sections):
+            raise LLMServiceError("Rewrite structure mismatch: DeepSeek returned different section count. Please retry.")
 
-        rebuilt: list[str] = []
-        for idx in range(len(source_items)):
-            value = items_by_index.get(str(idx))
-            if value is None:
+        rewritten_sections: list[RewriteSection] = []
+        for index, source_section in enumerate(resume_facts.sections):
+            llm_section = llm_sections[index]
+            if not isinstance(llm_section, dict):
                 raise LLMServiceError(
-                    f"DeepSeek strict rewrite missing index {idx} in section '{section_title}'"
+                    f"DeepSeek full rewrite section format invalid at index {index}. Please retry."
                 )
-            rebuilt.append(str(value).strip())
-        return rebuilt
+            llm_title = str(llm_section.get("title", "")).strip()
+            if self._normalize_title(llm_title) != self._normalize_title(source_section.title):
+                raise LLMServiceError(
+                    f"Rewrite structure mismatch in section {index}: expected title '{source_section.title}', got '{llm_title}'. Please retry."
+                )
+            llm_items_raw = llm_section.get("items", [])
+            if not isinstance(llm_items_raw, list):
+                raise LLMServiceError(
+                    f"Rewrite structure mismatch in section '{source_section.title}': items must be list."
+                )
+            llm_items = [str(item).strip() for item in llm_items_raw if str(item).strip()]
+            if not llm_items and source_section.items:
+                raise LLMServiceError(
+                    f"Rewrite structure mismatch in section '{source_section.title}': DeepSeek returned empty content. Please retry."
+                )
+
+            rewritten_sections.append(
+                RewriteSection(
+                    title=source_section.title,
+                    content="\n".join(llm_items),
+                    items=llm_items,
+                    supporting_facts=[item.text for item in source_section.items],
+                    layout=source_section.layout,
+                )
+            )
+        return rewritten_sections
+
+    def _normalize_title(self, title: str) -> str:
+        return re.sub(r"\s+", "", title).strip().lower()

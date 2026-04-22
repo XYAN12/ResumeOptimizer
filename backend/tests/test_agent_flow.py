@@ -57,10 +57,17 @@ class StrictMockLLMClient(DeepSeekClient):
                 ensure_ascii=False,
             )
 
-        match = re.search(r"Source items:\s*(\[.*\])", user_prompt, flags=re.DOTALL)
-        source_items = ast.literal_eval(match.group(1)) if match else []
-        rewritten_items = [f"{item}" for item in source_items]
-        return json.dumps({"items": rewritten_items}, ensure_ascii=False)
+        match = re.search(r"Source sections:\s*(\[.*\])", user_prompt, flags=re.DOTALL)
+        source_sections = ast.literal_eval(match.group(1)) if match else []
+        rewritten_sections = []
+        for section in source_sections:
+            rewritten_sections.append(
+                {
+                    "title": section.get("title", ""),
+                    "items": [f"{item}" for item in section.get("items", [])],
+                }
+            )
+        return json.dumps({"sections": rewritten_sections}, ensure_ascii=False)
 
     def extract_json_block(self, content: str) -> str:
         return content
