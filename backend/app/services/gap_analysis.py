@@ -1,92 +1,90 @@
 from __future__ import annotations
 
+import json
+
+from app.core.exceptions import LLMServiceError
 from app.models.domain import AnalysisItem, GapAnalysisResult, JDProfile, ResumeFacts
+from app.services.llm_client import DeepSeekClient
 
 
 class GapAnalysisService:
+    def __init__(self, llm_client: DeepSeekClient | None = None) -> None:
+        self.llm_client = llm_client or DeepSeekClient()
+
     def analyze(self, resume_facts: ResumeFacts, jd_profile: JDProfile) -> GapAnalysisResult:
-        fact_texts = [text.lower() for text in resume_facts.all_fact_texts()]
-        highlights: list[AnalysisItem] = []
-        gaps: list[AnalysisItem] = []
-        suggestions: list[AnalysisItem] = []
-
-        matched_keywords = []
-        missing_keywords = []
-
-        for keyword in jd_profile.keywords[:10]:
-            if any(keyword.lower() in fact for fact in fact_texts):
-                matched_keywords.append(keyword)
-            else:
-                missing_keywords.append(keyword)
-
-        if matched_keywords:
-            highlights.append(
-                AnalysisItem(
-                    title="关键词匹配",
-                    detail=f"简历中已覆盖这些 JD 关键词：{', '.join(matched_keywords[:8])}",
-                    supporting_facts=[
-                        fact for fact in resume_facts.all_fact_texts()
-                        if any(keyword.lower() in fact.lower() for keyword in matched_keywords[:4])
-                    ][:4],
-                )
+        if not self.llm_client.is_configured():
+            raise LLMServiceError(
+                "DeepSeek API is required for resume analysis. Please configure DEEPSEEK_API_KEY and retry."
             )
+        return self._analyze_with_llm(resume_facts, jd_profile)
 
-        if resume_facts.experience:
-            highlights.append(
-                AnalysisItem(
-                    title="已有经历可支撑目标岗位",
-                    detail="简历包含可用于对齐 JD 的工作/项目经历，可在改写时前置展示。",
-                    supporting_facts=[fact.text for fact in resume_facts.experience[:3]],
-                )
-            )
-
-        if missing_keywords:
-            gaps.append(
-                AnalysisItem(
-                    title="JD 关键词覆盖不足",
-                    detail=f"以下关键词未在原始简历中显式出现：{', '.join(missing_keywords[:8])}",
-                    supporting_facts=[],
-                )
-            )
-
-        if not resume_facts.achievements:
-            gaps.append(
-                AnalysisItem(
-                    title="结果量化信息偏少",
-                    detail="原始简历中未明显识别出成果、指标或奖项，改写时只能保守强化表述。",
-                    supporting_facts=[],
-                )
-            )
-
-        suggestions.append(
-            AnalysisItem(
-                title="重排信息顺序",
-                detail="优先展示与 JD 直接相关的经历、技能和项目，降低不相关内容的篇幅。",
-                supporting_facts=[fact.text for fact in resume_facts.experience[:2] + resume_facts.projects[:2]],
-            )
+    def _analyze_with_llm(self, resume_facts: ResumeFacts, jd_profile: JDProfile) -> GapAnalysisResult:
+        system_prompt = (
+            "You are a resume-gap analyst. "
+            "Use only facts from the resume. Never invent facts."
         )
-        suggestions.append(
-            AnalysisItem(
-                title="补全显式关键词",
-                detail="仅在原始事实已支持的前提下，把 JD 中的重要术语改写为更接近招聘语境的表达。",
-                supporting_facts=matched_keywords[:5],
-            )
-        )
+        user_prompt = f"""
+Return strict JSON with schema:
+{{
+  "highlights": [{{"title":"string","detail":"string","supporting_facts":["string"]}}],
+  "gaps": [{{"title":"string","detail":"string","supporting_facts":["string"]}}],
+  "suggestions": [{{"title":"string","detail":"string","supporting_facts":["string"]}}]
+}}
 
+Rules:
+- supporting_facts must come from resume facts verbatim.
+- If a requirement has no support, put it in gaps only.
+- Keep concise Chinese output.
+
+JD profile:
+title: {jd_profile.title}
+responsibilities: {jd_profile.responsibilities}
+required_skills: {jd_profile.required_skills}
+preferred_skills: {jd_profile.preferred_skills}
+qualifications: {jd_profile.qualifications}
+keywords: {jd_profile.keywords}
+
+Resume facts:
+{resume_facts.all_fact_texts()}
+"""
+        content = self.llm_client.chat_text(system_prompt=system_prompt, user_prompt=user_prompt)
+        try:
+            parsed = json.loads(self.llm_client.extract_json_block(content))
+        except Exception as exc:
+            raise LLMServiceError("Failed to parse gap analysis JSON from DeepSeek") from exc
         constraints = [
             "禁止新增未在原始简历中出现的公司、学校、项目、技术栈、奖项、时间线或量化指标。",
             "若 JD 要求在原始简历中没有事实支撑，只能标记为缺口，不可伪造补齐。",
             "最终改写必须等待用户确认后执行。",
         ]
-
         return GapAnalysisResult(
-            highlights=highlights,
-            gaps=gaps,
-            suggestions=suggestions,
+            highlights=self._parse_items(parsed.get("highlights")),
+            gaps=self._parse_items(parsed.get("gaps")),
+            suggestions=self._parse_items(parsed.get("suggestions")),
             fact_constraints=constraints,
             trace={
-                "matched_keywords": matched_keywords,
-                "missing_keywords": missing_keywords,
+                "llm_used": True,
                 "resume_fact_count": len(resume_facts.all_fact_texts()),
+                "jd_keyword_count": len(jd_profile.keywords),
             },
         )
+
+    def _parse_items(self, raw_items) -> list[AnalysisItem]:
+        if not isinstance(raw_items, list):
+            return []
+        items: list[AnalysisItem] = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            items.append(
+                AnalysisItem(
+                    title=str(item.get("title", "")).strip() or "未命名项",
+                    detail=str(item.get("detail", "")).strip(),
+                    supporting_facts=[
+                        str(fact).strip()
+                        for fact in item.get("supporting_facts", [])
+                        if str(fact).strip()
+                    ],
+                )
+            )
+        return items

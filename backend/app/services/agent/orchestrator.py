@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.core.exceptions import ValidationError
-from app.models.domain import AgentState
+from app.models.domain import AgentState, ExtractedResumeDocument
 from app.models.dto import AnalyzeResumeResponse, ExportResponse, GenerateRewriteResponse
 from app.services.agent.memory import AgentMemoryStore
 from app.services.export_service import ExportService
@@ -28,13 +28,23 @@ class ResumeOptimizerAgent:
         self.resume_rewriter = resume_rewriter
         self.export_service = export_service
 
-    def analyze(self, resume_text: str, jd_text: str) -> AnalyzeResumeResponse:
+    def analyze(
+        self,
+        resume_text: str,
+        jd_text: str,
+        extracted_document: ExtractedResumeDocument | None = None,
+    ) -> AnalyzeResumeResponse:
         if not resume_text.strip():
             raise ValidationError("Resume text cannot be empty")
         if not jd_text.strip():
             raise ValidationError("JD text cannot be empty")
 
-        resume_facts = self.resume_parser.parse(resume_text)
+        resume_facts = self.resume_parser.parse(
+            resume_text,
+            layout_lines=extracted_document.lines if extracted_document else None,
+            theme=extracted_document.theme if extracted_document else None,
+            source_format=extracted_document.source_format if extracted_document else "text",
+        )
         jd_profile = self.jd_analyzer.analyze(jd_text)
         analysis = self.gap_analysis.analyze(resume_facts, jd_profile)
         state = AgentState(
@@ -44,6 +54,8 @@ class ResumeOptimizerAgent:
             jd_profile=jd_profile,
             analysis=analysis,
             approval_required=True,
+            original_filename=extracted_document.filename if extracted_document else None,
+            original_file_content=extracted_document.content if extracted_document else None,
         )
         session_id = self.memory_store.create(state)
         return AnalyzeResumeResponse(
@@ -75,8 +87,10 @@ class ResumeOptimizerAgent:
 
         filename, payload = self.export_service.export(
             session_id=session_id,
-            markdown_text=state.rewrite.markdown,
+            rewrite=state.rewrite,
             export_format=export_format,
+            original_file_content=state.original_file_content,
+            original_filename=state.original_filename,
         )
         return ExportResponse(
             session_id=session_id,

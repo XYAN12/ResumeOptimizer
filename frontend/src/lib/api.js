@@ -3,6 +3,9 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 async function parseJson(response) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 504) {
+      throw new Error("请求超时：DeepSeek 分析耗时较长，请稍后重试。");
+    }
     throw new Error(data.detail || "Request failed");
   }
   return data;

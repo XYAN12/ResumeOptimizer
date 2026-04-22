@@ -190,9 +190,64 @@ button:disabled {
   overflow-x: auto;
 }
 
+.result-note {
+  margin-bottom: 16px;
+  color: #52606d;
+}
+
+.resume-preview {
+  background: #fffdf8;
+  border: 1px solid rgba(37, 48, 59, 0.1);
+  border-radius: 24px;
+  padding: 28px;
+  color: #1f2933;
+}
+
+.resume-preview-header {
+  padding-bottom: 18px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid rgba(37, 48, 59, 0.12);
+}
+
+.resume-preview-header p {
+  margin: 0 0 6px;
+}
+
+.resume-preview-header p:first-child {
+  font-family: "IBM Plex Serif", Georgia, serif;
+  font-size: 1.8rem;
+  font-weight: 700;
+}
+
+.resume-preview-section + .resume-preview-section {
+  margin-top: 20px;
+}
+
+.resume-preview-section h3 {
+  margin: 0 0 10px;
+  font-family: "IBM Plex Serif", Georgia, serif;
+  font-size: 1.2rem;
+  color: #7c5c42;
+}
+
+.resume-preview-section ul {
+  margin: 0;
+  padding-left: 22px;
+}
+
+.resume-preview-section li + li {
+  margin-top: 8px;
+}
+
 .error-text {
   color: #b42318;
   margin-top: 12px;
+}
+
+.loading-text {
+  margin-top: 12px;
+  color: #0f766e;
+  font-weight: 600;
 }
 
 .muted {

@@ -14,7 +14,7 @@ from app.models.dto import (
     GenerateRewriteResponse,
 )
 from app.services.agent.orchestrator import ResumeOptimizerAgent
-from app.services.file_extractors import extract_text_from_upload
+from app.services.file_extractors import extract_resume_document
 
 router = APIRouter(prefix="/resume", tags=["resume"])
 
@@ -59,8 +59,8 @@ async def analyze_resume_file(
         raise HTTPException(status_code=400, detail="Uploaded file exceeds size limit")
 
     try:
-        resume_text = extract_text_from_upload(file.filename or "resume", content)
-        return agent.analyze(resume_text, jd_text)
+        extracted_document = extract_resume_document(file.filename or "resume", content)
+        return agent.analyze(extracted_document.text, jd_text, extracted_document=extracted_document)
     except Exception as exc:  # pragma: no cover - FastAPI boundary
         _raise_http_error(exc)
 

@@ -12,6 +12,155 @@
 - 支持导出为 `md`、`docx`、`pdf`
 - 提供 Docker 构建与启动方式
 
+## Docker 构建与启动
+
+### 启动前准备
+
+确保本机已安装：
+
+- Docker
+- Docker Compose
+
+其中：
+
+- macOS 和 Windows 通常使用 Docker Desktop
+- Linux 通常使用 Docker Engine + Docker Compose Plugin
+
+先在项目根目录创建 `.env`：
+
+#### macOS / Linux
+
+```bash
+cp .env.example .env
+```
+
+#### Windows PowerShell
+
+```powershell
+Copy-Item .env.example .env
+```
+
+#### Windows CMD
+
+```cmd
+copy .env.example .env
+```
+
+然后编辑 `.env`，至少填入：
+
+```env
+DEEPSEEK_API_KEY=your_deepseek_api_key_here
+```
+
+如果你不想启用 DeepSeek，也可以暂时留空，但 README 建议在正式体验 Agent 能力时配置该值。
+
+### 使用 Docker Compose 启动
+
+#### macOS
+
+```bash
+docker compose up --build
+```
+
+#### Linux
+
+```bash
+docker compose up --build
+```
+
+如果当前 Linux 用户没有 Docker 权限，可能需要：
+
+```bash
+sudo docker compose up --build
+```
+
+#### Windows PowerShell
+
+```powershell
+docker compose up --build
+```
+
+#### Windows CMD
+
+```cmd
+docker compose up --build
+```
+
+启动完成后访问：
+
+- 前端: `http://localhost:8081`
+- 后端: `http://localhost:8000`
+- Swagger: `http://localhost:8000/docs`
+
+### 端口冲突时的启动方法
+
+如果本机 `8081` 或 `8000` 已被占用，可以覆盖端口。
+
+#### macOS / Linux
+
+```bash
+FRONTEND_PORT=8080 BACKEND_PORT=8001 docker compose up --build
+```
+
+#### Windows PowerShell
+
+```powershell
+$env:FRONTEND_PORT=8081
+$env:BACKEND_PORT=8001
+docker compose up --build
+```
+
+#### Windows CMD
+
+```cmd
+set FRONTEND_PORT=8081
+set BACKEND_PORT=8001
+docker compose up --build
+```
+
+对应访问地址会变为：
+
+- 前端: `http://localhost:8081`
+- 后端: `http://localhost:8001`
+- Swagger: `http://localhost:8001/docs`
+
+### 后台启动
+
+如果希望容器在后台运行：
+
+#### macOS / Linux
+
+```bash
+docker compose up -d --build
+```
+
+#### Windows PowerShell / CMD
+
+```powershell
+docker compose up -d --build
+```
+
+### 停止服务
+
+#### macOS / Linux
+
+```bash
+docker compose down
+```
+
+#### Windows PowerShell / CMD
+
+```powershell
+docker compose down
+```
+
+### 单独构建
+
+```bash
+docker build -f backend/Dockerfile -t resume-optimizer-backend .
+docker build -f frontend/Dockerfile -t resume-optimizer-frontend .
+```
+
 ## 项目结构
 
 ```text
@@ -104,6 +253,18 @@
 cp .env.example .env
 ```
 
+然后在 `.env` 中至少补充：
+
+```env
+DEEPSEEK_API_KEY=your_deepseek_api_key_here
+```
+
+说明：
+
+- `DEEPSEEK_API_KEY` 必须写在 `.env` 中或通过系统环境变量注入，不能直接写进代码。
+- 如果暂时不填写 `DEEPSEEK_API_KEY`，当前项目仍可启动，但会使用本地 deterministic 流程，而不是远程模型增强版流程。
+- Docker Compose 会自动读取项目根目录下的 `.env`。
+
 ## 本地开发
 
 ### 后端
@@ -135,33 +296,6 @@ npm run dev
 
 ```bash
 VITE_API_BASE_URL=http://localhost:8000/api
-```
-
-## Docker 构建与启动
-
-### 使用 docker compose
-
-```bash
-docker compose up --build
-```
-
-访问：
-
-- 前端: `http://localhost:8080`
-- 后端: `http://localhost:8000`
-- Swagger: `http://localhost:8000/docs`
-
-如果本机端口已被占用，可以覆盖端口：
-
-```bash
-FRONTEND_PORT=8081 BACKEND_PORT=8001 docker compose up --build
-```
-
-### 单独构建
-
-```bash
-docker build -f backend/Dockerfile -t resume-optimizer-backend .
-docker build -f frontend/Dockerfile -t resume-optimizer-frontend .
 ```
 
 ## 示例使用流程
