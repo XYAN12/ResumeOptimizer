@@ -52,7 +52,6 @@ copy .env.example .env
 DEEPSEEK_API_KEY=your_deepseek_api_key_here
 ```
 
-如果你不想启用 DeepSeek，也可以暂时留空，但 README 建议在正式体验 Agent 能力时配置该值。
 
 ### 使用 Docker Compose 启动
 
