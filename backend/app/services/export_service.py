@@ -51,14 +51,7 @@ class ExportService:
         original_file_content: bytes | None,
         original_filename: str | None,
     ) -> bytes:
-        if (
-            rewrite.theme.source_format == "docx"
-            and rewrite.theme.preserve_original_docx_look
-            and original_file_content
-            and (original_filename or "").lower().endswith(".docx")
-        ):
-            return self._to_template_docx(rewrite, original_file_content)
-
+        # Export from rewritten preview structure directly for consistent output.
         document = Document()
         for section in rewrite.sections:
             if section.title.lower() == "header":
@@ -127,13 +120,10 @@ class ExportService:
         if not target_paragraphs:
             return
 
+        fitted_items = self._fit_items_to_slots(optimized_items, len(target_paragraphs))
         for idx, paragraph in enumerate(target_paragraphs):
-            if idx >= len(optimized_items):
-                # Keep trailing lines to avoid deleting original facts.
-                break
-
             prefix = "" if title.lower() == "header" else "• "
-            paragraph.text = f"{prefix}{optimized_items[idx]}"
+            paragraph.text = f"{prefix}{fitted_items[idx]}"
 
     def _to_pdf(
         self,
@@ -142,13 +132,7 @@ class ExportService:
         original_filename: str | None,
     ) -> bytes:
         self._register_pdf_fonts()
-        if (
-            rewrite.theme.source_format == "pdf"
-            and rewrite.theme.preserve_original_pdf_look
-            and original_file_content
-            and (original_filename or "").lower().endswith(".pdf")
-        ):
-            return self._to_template_pdf(rewrite, original_file_content)
+        # Export from rewritten preview structure directly for consistent output.
         return self._to_plain_pdf(rewrite)
 
     def _to_plain_pdf(self, rewrite: RewriteResult) -> bytes:
@@ -247,7 +231,8 @@ class ExportService:
 
         y = start_y
         bullet_prefix = "" if section.title.lower() == "header" else "• "
-        for item in section.items:
+        fitted_items = self._fit_items_to_slots(section.items, max(len(section.supporting_facts), 1))
+        for item in fitted_items:
             wrapped_lines = self._wrap_for_template(
                 f"{bullet_prefix}{item}",
                 width=width,
@@ -292,3 +277,51 @@ class ExportService:
 
     def _normalize_title(self, text: str) -> str:
         return re.sub(r"[\W_]+", "", text.lower(), flags=re.UNICODE).strip()
+
+    def _fit_items_to_slots(self, items: list[str], slot_count: int) -> list[str]:
+        if slot_count <= 0:
+            return []
+        normalized = [item.strip() for item in items if item and item.strip()]
+        if not normalized:
+            return [""] * slot_count
+        if len(normalized) == slot_count:
+            return normalized
+        if len(normalized) > slot_count:
+            merged: list[str] = []
+            avg = len(normalized) / slot_count
+            start = 0
+            for index in range(slot_count):
+                end = round((index + 1) * avg)
+                chunk = normalized[start:end] if end > start else [normalized[start]]
+                merged.append("；".join(part for part in chunk if part))
+                start = end
+            return merged
+
+        # len(normalized) < slot_count: duplicate semantic flow by splitting long lines first.
+        expanded = list(normalized)
+        while len(expanded) < slot_count:
+            longest_index = max(range(len(expanded)), key=lambda idx: len(expanded[idx]))
+            longest = expanded[longest_index]
+            split_index = self._smart_split_index(longest)
+            if split_index <= 0 or split_index >= len(longest):
+                expanded.append("")
+            else:
+                first = longest[:split_index].strip(" ，,;；")
+                second = longest[split_index:].strip(" ，,;；")
+                expanded[longest_index] = first or longest
+                expanded.insert(longest_index + 1, second or "")
+        return expanded[:slot_count]
+
+    def _smart_split_index(self, text: str) -> int:
+        if len(text) < 20:
+            return -1
+        middle = len(text) // 2
+        delimiters = "，,；;。 "
+        for offset in range(0, len(text) // 2):
+            right = middle + offset
+            left = middle - offset
+            if right < len(text) and text[right] in delimiters:
+                return right + 1
+            if left >= 0 and text[left] in delimiters:
+                return left + 1
+        return middle

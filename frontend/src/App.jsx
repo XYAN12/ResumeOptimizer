@@ -23,14 +23,53 @@ function FactList({ title, items }) {
 }
 
 function ResumePreview({ rewrite }) {
+  const [currentPage, setCurrentPage] = useState(0);
   const normalizeItems = (items = []) =>
     items
       .map((item) => (typeof item === "string" ? item.trim() : ""))
       .filter(Boolean);
 
+  const estimateSectionLines = (section) => {
+    const titleLines = section.title.toLowerCase() === "header" ? 0 : 2;
+    const itemLines = normalizeItems(section.items).reduce((sum, item) => {
+      const approx = Math.max(1, Math.ceil(item.length / 48));
+      return sum + approx;
+    }, 0);
+    return titleLines + itemLines + 1;
+  };
+
+  const paginateSections = (sections) => {
+    const pages = [];
+    let current = [];
+    let lineCount = 0;
+    const maxLinesPerPage = 34;
+
+    sections.forEach((section) => {
+      const sectionLines = estimateSectionLines(section);
+      if (current.length > 0 && lineCount + sectionLines > maxLinesPerPage) {
+        pages.push(current);
+        current = [section];
+        lineCount = sectionLines;
+      } else {
+        current.push(section);
+        lineCount += sectionLines;
+      }
+    });
+
+    if (current.length) {
+      pages.push(current);
+    }
+    return pages.length ? pages : [[]];
+  };
+
+  const pages = paginateSections(rewrite.sections);
+  const safePageIndex = Math.min(currentPage, pages.length - 1);
+  const pageSections = pages[safePageIndex] || [];
+
   return (
-    <article className="resume-preview">
-      {rewrite.sections.map((section, index) =>
+    <div className="resume-preview-wrapper">
+      <article className="resume-preview">
+        {pageSections.map((section, index) =>
         section.title.toLowerCase() === "header" ? (
           <header className="resume-preview-header" key={`section-${index}`}>
             {normalizeItems(section.items).map((item, itemIndex) => (
@@ -52,7 +91,27 @@ function ResumePreview({ rewrite }) {
           </section>
         ),
       )}
-    </article>
+      </article>
+      <div className="preview-pagination">
+        <button
+          type="button"
+          onClick={() => setCurrentPage((page) => Math.max(0, page - 1))}
+          disabled={safePageIndex === 0}
+        >
+          上一页
+        </button>
+        <span>
+          第 {safePageIndex + 1} 页 / 共 {pages.length} 页
+        </span>
+        <button
+          type="button"
+          onClick={() => setCurrentPage((page) => Math.min(pages.length - 1, page + 1))}
+          disabled={safePageIndex >= pages.length - 1}
+        >
+          下一页
+        </button>
+      </div>
+    </div>
   );
 }
 

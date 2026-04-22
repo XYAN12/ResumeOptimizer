@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from app.core.exceptions import ValidationError
 from app.models.domain import AgentState, ExtractedResumeDocument
 from app.models.dto import AnalyzeResumeResponse, ExportResponse, GenerateRewriteResponse
@@ -9,6 +11,8 @@ from app.services.gap_analysis import GapAnalysisService
 from app.services.jd_analyzer import JDAnalyzerService
 from app.services.resume_parser import ResumeParserService
 from app.services.resume_rewriter import ResumeRewriteService
+
+logger = logging.getLogger(__name__)
 
 
 class ResumeOptimizerAgent:
@@ -73,6 +77,12 @@ class ResumeOptimizerAgent:
             raise ValidationError("User confirmation is required before rewrite")
 
         rewrite = self.resume_rewriter.rewrite(state.resume_facts, state.jd_profile)
+        logger.info(
+            "rewrite completed session_id=%s llm_used=%s rewrite_mode=%s",
+            session_id,
+            rewrite.trace.get("llm_used"),
+            rewrite.trace.get("rewrite_mode", "unknown"),
+        )
         state.rewrite = rewrite
         state.approval_required = False
         self.memory_store.update(session_id, state)
