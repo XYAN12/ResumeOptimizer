@@ -193,7 +193,7 @@ export default function App() {
           </label>
           <div className="button-row">
             <button onClick={handleAnalyze} disabled={loading}>
-              {loading ? "处理中..." : "开始分析"}
+              {loading && loadingScope === "analyze" ? "处理中..." : "开始分析"}
             </button>
           </div>
           {loading && loadingScope === "analyze" ? <p className="loading-text">{loadingStage}</p> : null}
@@ -203,29 +203,12 @@ export default function App() {
           {error ? <p className="error-text">{error}</p> : null}
         </SectionCard>
 
-        <SectionCard title="流程约束" accent="sage">
-          <ul className="constraint-list">
-            <li>原始简历事实优先级最高，Agent 会先抽取结构化 facts。</li>
-            <li>JD 作为目标上下文，只能影响分析和重排，不可覆盖原始事实。</li>
-            <li>你确认前只输出分析，不生成最终优化版简历。</li>
-            <li>改写阶段必须引用结构化 facts，不允许自由发挥。</li>
-          </ul>
-        </SectionCard>
-
         {analysisResult ? (
           <SectionCard title="匹配分析" accent="sand">
             <div className="analysis-grid">
               <FactList title="匹配亮点" items={analysisResult.analysis.highlights} />
               <FactList title="主要缺口" items={analysisResult.analysis.gaps} />
               <FactList title="优化建议" items={analysisResult.analysis.suggestions} />
-            </div>
-            <div className="fact-box">
-              <h3>事实约束</h3>
-              <ul>
-                {analysisResult.analysis.fact_constraints.map((item, index) => (
-                  <li key={`constraint-${index}`}>{item}</li>
-                ))}
-              </ul>
             </div>
             <div className="result-note">
               {analysisResult.analysis?.trace?.llm_used
@@ -234,7 +217,7 @@ export default function App() {
             </div>
             <div className="button-row">
               <button onClick={handleGenerateRewrite} disabled={loading}>
-                用户确认后生成优化版简历
+                {loading && loadingScope === "rewrite" ? "处理中..." : "用户确认后生成优化版简历"}
               </button>
             </div>
             {loading && loadingScope === "rewrite" ? <p className="loading-text">{loadingStage}</p> : null}
@@ -257,13 +240,13 @@ export default function App() {
             <ResumePreview rewrite={rewriteResult.rewrite} />
             <div className="button-row">
               <button onClick={() => handleExport("md")} disabled={loading}>
-                导出 Markdown
+                {loading && loadingScope === "export" ? "处理中..." : "导出 Markdown"}
               </button>
               <button onClick={() => handleExport("docx")} disabled={loading}>
-                导出 DOCX
+                {loading && loadingScope === "export" ? "处理中..." : "导出 DOCX"}
               </button>
               <button onClick={() => handleExport("pdf")} disabled={loading}>
-                导出 PDF
+                {loading && loadingScope === "export" ? "处理中..." : "导出 PDF"}
               </button>
             </div>
             {loading && loadingScope === "export" ? <p className="loading-text">{loadingStage}</p> : null}
